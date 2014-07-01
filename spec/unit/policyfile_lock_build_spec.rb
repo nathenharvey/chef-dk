@@ -19,7 +19,7 @@ require 'spec_helper'
 require 'shared/setup_git_cookbooks'
 require 'chef-dk/policyfile_lock.rb'
 
-describe ChefDK::PolicyfileLock do
+describe ChefDK::PolicyfileLock, "building a lockfile" do
 
   def id_to_dotted(sha1_id)
     major = sha1_id[0...14]
