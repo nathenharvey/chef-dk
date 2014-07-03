@@ -54,6 +54,7 @@ module ChefDK
       def initialize(name, cache_path)
         @name = name
         @cache_path = cache_path
+        @version = nil
         @origin = nil
         @cache_key = nil
         @identifier = nil
@@ -64,6 +65,10 @@ module ChefDK
         File.join(cache_path, cache_key)
       end
 
+      def version
+        @version || identifiers.semver_version
+      end
+
       def identifier
         @identifier || identifiers.content_identifier
       end
@@ -72,10 +77,18 @@ module ChefDK
         @dotted_decimal_identifier || identifiers.dotted_decimal_identifier
       end
 
+      def build_from_lock_data(lock_data)
+        @version = lock_data["version"]
+        @identifier = lock_data["identifier"]
+        @dotted_decimal_identifier = lock_data["dotted_decimal_identifier"]
+        @cache_key = lock_data["cache_key"]
+        @origin = lock_data["origin"]
+      end
+
       def to_lock
         validate!
         {
-          "version" => identifiers.semver_version,
+          "version" => version,
           "identifier" => identifier,
           "dotted_decimal_identifier" => dotted_decimal_identifier,
           "cache_key" => cache_key,
@@ -88,8 +101,11 @@ module ChefDK
       end
 
       def validate!
+        if cache_key.nil?
+          raise CachedCookbookNotFound, "Cookbook `#{name}' does not have a `cache_key` set, cannot locate cookbook"
+        end
         unless File.exist?(cookbook_path)
-          raise CachedCookbookNotFound, "Cookbook `#{name}' not found at expected cache location `#{cookbook_path}'"
+          raise CachedCookbookNotFound, "Cookbook `#{name}' not found at expected cache location `#{cache_key}' (full path: `#{cookbook_path}')"
         end
       end
 
@@ -98,6 +114,9 @@ module ChefDK
     # LocalCookbook objects represent cookbooks that are sourced from the local
     # filesystem and are assumed to be under active development.
     class LocalCookbook
+
+      # The cookbook name (without any version or other info suffixed)
+      attr_reader :name
 
       # A relative or absolute path to the cookbook. If a relative path is
       # given, it is resolved relative to #relative_paths_root
@@ -134,6 +153,10 @@ module ChefDK
         end
       end
 
+      def version
+        @version || identifiers.semver_version
+      end
+
       def identifier
         @identifier || identifiers.content_identifier
       end
@@ -142,10 +165,17 @@ module ChefDK
         @dotted_decimal_identifier || identifiers.dotted_decimal_identifier
       end
 
-      def to_lock
+      def build_from_lock_data(lock_data)
+        @version = lock_data["version"]
+        @identifier = lock_data["identifier"]
+        @dotted_decimal_identifier = lock_data["dotted_decimal_identifier"]
+        @source = lock_data["source"]
+      end
 
+      def to_lock
+        validate!
         {
-          "version" => identifiers.semver_version,
+          "version" => version,
           "identifier" => identifier,
           "dotted_decimal_identifier" => dotted_decimal_identifier,
           "source" => source,
@@ -156,6 +186,15 @@ module ChefDK
 
       def identifiers
         @identifiers ||= CookbookProfiler::Identifiers.new(cookbook_path)
+      end
+
+      def validate!
+        if source.nil?
+          raise CachedCookbookNotFound, "Cookbook `#{name}' does not have a `source` set, cannot locate cookbook"
+        end
+        unless File.exist?(cookbook_path)
+          raise CachedCookbookNotFound, "Cookbook `#{name}' not found at path source `#{source}` (full path: `#{cookbook_path}')"
+        end
       end
 
     end
@@ -189,13 +228,13 @@ module ChefDK
 
     def cached_cookbook(name)
       cached_cookbook = CachedCookbook.new(name, cache_path)
-      yield cached_cookbook
+      yield cached_cookbook if block_given?
       @cookbook_locks[name] = cached_cookbook
     end
 
     def local_cookbook(name)
       local_cookbook = LocalCookbook.new(name, relative_paths_root)
-      yield local_cookbook
+      yield local_cookbook if block_given?
       @cookbook_locks[name] = local_cookbook
     end
 
@@ -233,7 +272,24 @@ module ChefDK
       self
     end
 
+    def build_from_lock_data(lock_data)
+      self.name = lock_data["name"]
+      self.run_list = lock_data["run_list"]
+      lock_data["cookbook_locks"].each do |name, lock_info|
+        build_cookbook_lock_from_lock_data(name, lock_info)
+      end
+      self
+    end
+
     private
+
+    def build_cookbook_lock_from_lock_data(name, lock_info)
+      if lock_info["cache_key"].nil?
+        local_cookbook(name).build_from_lock_data(lock_info)
+      else
+        cached_cookbook(name).build_from_lock_data(lock_info)
+      end
+    end
 
     def handle_options(options)
       @cache_path = options[:cache_path]

@@ -75,6 +75,65 @@ describe ChefDK::PolicyfileLock, "building a lockfile" do
 
   end
 
+  context "when a cached cookbook omits the cache key" do
+
+    let(:policyfile_lock) do
+      ChefDK::PolicyfileLock.build(policyfile_lock_options) do |p|
+
+        p.name = "invalid_cache_key_policyfile"
+
+        p.run_list = [ "recipe[foo]" ]
+
+        p.cached_cookbook("nosuchthing") do |cb|
+        end
+      end
+    end
+
+    it "raises a descriptive error" do
+      expect { policyfile_lock.to_lock }.to raise_error(ChefDK::CachedCookbookNotFound)
+    end
+
+  end
+
+  context "when a local cookbook omits the path" do
+
+    let(:policyfile_lock) do
+      ChefDK::PolicyfileLock.build(policyfile_lock_options) do |p|
+
+        p.name = "invalid_local_cookbook"
+
+        p.run_list = [ "recipe[foo]" ]
+
+        p.local_cookbook("nosuchthing") do |cb|
+        end
+      end
+    end
+
+    it "raises a descriptive error" do
+      expect { policyfile_lock.to_lock }.to raise_error(ChefDK::CachedCookbookNotFound)
+    end
+  end
+
+  context "when a local cookbook has an incorrect path" do
+
+    let(:policyfile_lock) do
+      ChefDK::PolicyfileLock.build(policyfile_lock_options) do |p|
+
+        p.name = "invalid_local_cookbook"
+
+        p.run_list = [ "recipe[foo]" ]
+
+        p.local_cookbook("nosuchthing") do |cb|
+          cb.source = "nopenopenope"
+        end
+      end
+    end
+
+    it "raises a descriptive error" do
+      expect { policyfile_lock.to_lock }.to raise_error(ChefDK::CachedCookbookNotFound)
+    end
+  end
+
   context "when a cookbook is not in the cache" do
 
     let(:policyfile_lock) do
