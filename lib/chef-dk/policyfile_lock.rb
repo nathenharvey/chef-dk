@@ -254,6 +254,7 @@ module ChefDK
     end
 
     def build_from_compiler(compiler)
+      @name = compiler.name
       @run_list = compiler.expanded_run_list
 
       compiler.all_cookbook_specs.each do |cookbook_name, spec|

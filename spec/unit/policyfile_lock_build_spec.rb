@@ -480,6 +480,7 @@ describe ChefDK::PolicyfileLock, "building a lockfile" do
 
     let(:policyfile_compiler) do
       double( "ChefDK::PolicyfileCompiler",
+              name: "my-policyfile",
               expanded_run_list: %w[foo bar],
               all_cookbook_specs: {"foo" => cached_cookbook_spec, "bar" => local_cookbook_spec})
     end
@@ -491,7 +492,7 @@ describe ChefDK::PolicyfileLock, "building a lockfile" do
     let(:compiled_policyfile) do
       {
 
-        "name" => nil,
+        "name" => "my-policyfile",
 
         "run_list" => ["foo", "bar"],
 
@@ -524,7 +525,6 @@ describe ChefDK::PolicyfileLock, "building a lockfile" do
         }
       }
     end
-
 
     it "adds a cached cookbook lock generator for the compiler's cached cookbook" do
       expect(policyfile_lock.cookbook_locks).to have_key("foo")
