@@ -24,6 +24,8 @@ module ChefDK
 
     # CachedCookbook objects represent a cookbook that has been fetched from an
     # upstream canonical source and stored (presumed unmodified).
+    # --
+    # TODO: lots of duplication between these classes and CookbookSpec.
     class CachedCookbook
 
       # The cookbook name (without any version or other info suffixed)
@@ -37,6 +39,11 @@ module ChefDK
 
       # A URI pointing to the canonical source of the cookbook.
       attr_accessor :origin
+
+      # Options specifying the source and revision of this cookbook. These can
+      # be passed to a CookbookSpec to create an object that can install the
+      # same revision of the cookbook on another machine.
+      attr_accessor :source_options
 
       # A string that uniquely identifies the cookbook version. If not
       # explicitly set, an identifier is generated based on the cookbook's
@@ -56,6 +63,7 @@ module ChefDK
         @cache_path = cache_path
         @version = nil
         @origin = nil
+        @source_options = nil
         @cache_key = nil
         @identifier = nil
         @dotted_decimal_identifier = nil
@@ -65,8 +73,17 @@ module ChefDK
         File.join(cache_path, cache_key)
       end
 
+      # TODO: get rid of lazy here. This class should be a value object with an
+      # explicit opertion to load data from the profiled cookbook
+      # ditto for #identifier and #dotted_decimal_identifier
       def version
         @version || identifiers.semver_version
+      end
+
+      # TODO: tests
+      # TODO: duplicates CookbookSpec#initialize
+      def version_constraint
+        Semverse::Constraint.new("= #{version}")
       end
 
       def identifier
@@ -77,12 +94,29 @@ module ChefDK
         @dotted_decimal_identifier || identifiers.dotted_decimal_identifier
       end
 
+      # TODO: tests
+      # TODO: duplicates CookbookSpec#ensure_cached
+      def install_locked
+        pp :lock => [name, self.class], :source_opts => source_options, :installer => installer
+        unless installer.installed?
+          installer.install
+        end
+      end
+
+      # TODO: tests
+      # TODO: validate source options
+      def installer
+        @installer ||= CookbookOmnifetch.init(self, source_options)
+      end
+
       def build_from_lock_data(lock_data)
         @version = lock_data["version"]
         @identifier = lock_data["identifier"]
         @dotted_decimal_identifier = lock_data["dotted_decimal_identifier"]
         @cache_key = lock_data["cache_key"]
         @origin = lock_data["origin"]
+        # TODO: test
+        @source_options = symbolize_source_options_keys(lock_data["source_options"])
       end
 
       def to_lock
@@ -92,7 +126,8 @@ module ChefDK
           "identifier" => identifier,
           "dotted_decimal_identifier" => dotted_decimal_identifier,
           "cache_key" => cache_key,
-          "origin" => origin
+          "origin" => origin,
+          "source_options" => source_options
         }
       end
 
@@ -109,6 +144,16 @@ module ChefDK
         end
       end
 
+      private
+
+      def symbolize_source_options_keys(source_options_from_json)
+        source_options_from_json ||= {}
+        source_options_from_json.inject({}) do |normalized_source_opts, (key, value)|
+          normalized_source_opts[key.to_sym] = value
+          normalized_source_opts
+        end
+      end
+
     end
 
     # LocalCookbook objects represent cookbooks that are sourced from the local
@@ -121,6 +166,11 @@ module ChefDK
       # A relative or absolute path to the cookbook. If a relative path is
       # given, it is resolved relative to #relative_paths_root
       attr_accessor :source
+
+      # Options specifying the source and revision of this cookbook. These can
+      # be passed to a CookbookSpec to create an object that can install the
+      # same revision of the cookbook on another machine.
+      attr_accessor :source_options
 
       # A string that uniquely identifies the cookbook version. If not
       # explicitly set, an identifier is generated based on the cookbook's
@@ -153,8 +203,16 @@ module ChefDK
         end
       end
 
+      # TODO: get rid of lazy here. This class should be a value object with an
+      # explicit opertion to load data from the profiled cookbook
       def version
         @version || identifiers.semver_version
+      end
+
+      # TODO: tests
+      # TODO: duplicates CookbookSpec#initialize
+      def version_constraint
+        Semverse::Constraint.new("= #{version}")
       end
 
       def identifier
@@ -165,11 +223,18 @@ module ChefDK
         @dotted_decimal_identifier || identifiers.dotted_decimal_identifier
       end
 
-      def build_from_lock_data(lock_data)
-        @version = lock_data["version"]
-        @identifier = lock_data["identifier"]
-        @dotted_decimal_identifier = lock_data["dotted_decimal_identifier"]
-        @source = lock_data["source"]
+      # TODO: tests
+      # TODO: duplicates CookbookSpec#ensure_cached
+      def install_locked
+        unless installer.installed?
+          installer.install
+        end
+      end
+
+      # TODO: tests
+      # TODO: validate source options
+      def installer
+        @installer ||= CookbookOmnifetch.init(self, source_options)
       end
 
       def to_lock
@@ -180,8 +245,18 @@ module ChefDK
           "dotted_decimal_identifier" => dotted_decimal_identifier,
           "source" => source,
           "cache_key" => nil,
-          "scm_info" => scm_profiler.profile_data
+          "scm_info" => scm_profiler.profile_data,
+          "source_options" => source_options
         }
+      end
+
+      def build_from_lock_data(lock_data)
+        @version = lock_data["version"]
+        @identifier = lock_data["identifier"]
+        @dotted_decimal_identifier = lock_data["dotted_decimal_identifier"]
+        @source = lock_data["source"]
+        # TODO: test
+        @source_options = symbolize_source_options_keys(lock_data["source_options"])
       end
 
       def identifiers
@@ -194,6 +269,17 @@ module ChefDK
         end
         unless File.exist?(cookbook_path)
           raise CachedCookbookNotFound, "Cookbook `#{name}' not found at path source `#{source}` (full path: `#{cookbook_path}')"
+        end
+      end
+
+      private
+
+      # TODO: duplicates CachedCookbook#symbolize_source_options_keys
+      def symbolize_source_options_keys(source_options_from_json)
+        source_options_from_json ||= {}
+        source_options_from_json.inject({}) do |normalized_source_opts, (key, value)|
+          normalized_source_opts[key.to_sym] = value
+          normalized_source_opts
         end
       end
 
@@ -262,18 +348,21 @@ module ChefDK
           cached_cookbook(cookbook_name) do |cached_cb|
             cached_cb.cache_key = spec.cache_key
             cached_cb.origin = spec.uri
+            cached_cb.source_options = spec.to_source_options
           end
         else
           local_cookbook(cookbook_name) do |local_cb|
             local_cb.source = spec.relative_path
             local_cb.relative_paths_root = spec.relative_paths_root
+            local_cb.source_options = spec.to_source_options
           end
         end
       end
       self
     end
 
-    def build_from_lock_data(lock_data)
+    def build_from_lock_data(lock_data, lockfile_path)
+      @relative_paths_root = File.expand_path(File.dirname(lockfile_path))
       self.name = lock_data["name"]
       self.run_list = lock_data["run_list"]
       lock_data["cookbook_locks"].each do |name, lock_info|
@@ -281,6 +370,29 @@ module ChefDK
       end
       self
     end
+
+    # TODO: tests
+    # TODO: duplicates PolicyfileCompiler#install
+    def install_cookbooks
+      ensure_cache_dir_exists
+
+      cookbook_locks.each do |cookbook_name, cookbook_lock|
+        cookbook_lock.install_locked
+      end
+    end
+
+    # TODO: duplicates PolicyfileCompiler#ensure_cache_dir_exists
+    def ensure_cache_dir_exists
+      unless File.exist?(cache_path)
+        FileUtils.mkdir_p(cache_path)
+      end
+    end
+
+    # TODO: duplicates PolicyfileCompiler#cache_path
+    def cache_path
+      CookbookOmnifetch.storage_path
+    end
+
 
     private
 

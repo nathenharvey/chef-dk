@@ -91,6 +91,11 @@ module ChefDK
         File.dirname(@policyfile_filename)
       end
 
+      # TODO: test me
+      def to_source_options
+        installer.lock_data
+      end
+
     end
   end
 end
