@@ -14,19 +14,8 @@ cookbook_file "#{repo_dir}/README.md" do
   source "repo/README.md"
 end
 
-cookbook_file "#{repo_dir}/Rakefile" do
-  source "repo/Rakefile"
-end
-
 cookbook_file "#{repo_dir}/chefignore" do
   source "chefignore"
-end
-
-directory "#{repo_dir}/config"
-
-template "#{repo_dir}/config/rake.rb" do
-  source "repo/config/rake.rb.erb"
-  helpers(ChefDK::Generator::TemplateHelper)
 end
 
 %w{certificates data_bags environments roles}.each do |tlo|
@@ -37,7 +26,39 @@ end
   end
 end
 
-directory "#{repo_dir}/cookbooks"
+if context.policy_only
+  directory "#{repo_dir}/cookbooks"
+else
+  directory "#{repo_dir}/cookbooks/starter" do
+    recursive true
+  end
+
+  %w{attributes files/default recipes templates/default}.each do |cookbook_dir|
+    directory cookbook_dir do
+      recursive true
+    end
+  end
+
+  cookbook_file "#{repo_dir}/cookbooks/starter/attributes/default.rb" do
+    source "repo/cookbooks/starter/attributes/default.rb"
+  end
+
+  cookbook_file "#{repo_dir}/cookbooks/starter/files/default/sample.txt" do
+    source "repo/cookbooks/starter/files/default/sample.txt"
+  end
+
+  cookbook_file "#{repo_dir}/cookbooks/starter/metadata.rb" do
+    source "repo/cookbooks/starter/files/default/metadata.rb"
+  end
+
+  cookbook_file "#{repo_dir}/cookbooks/starter/recipes/default.rb" do
+    source "repo/cookbooks/starter/files/default/recipe.rb"
+  end
+
+  cookbook_file "#{repo_dir}/roles/starter.rb" do
+    source "repo/roles/starter.rb"
+  end
+end
 
 cookbook_file "#{repo_dir}/cookbooks/README.md" do
   if context.policy_only
